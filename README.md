@@ -1,2 +1,2 @@
 # Three-mini-FP-Controller-demo
-A advanced first person controller based on three.js
+A tiny and advanced first person controller based on three.js
