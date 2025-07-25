@@ -32,7 +32,7 @@ A fps bar is provided for your observation for your device that how it runs this
 # | `W A S D` | Move |
 # | `Space`   | Jump |
 # | `R`       | Run |
-# | `Mouse`   | Look (click to lock pointer) |
+# | `Mouse`   | Look |(click to lock pointer) |
 
 ### 📱 Touchscreen (Mobile)
 - Drag the **joystick** to move
