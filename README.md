@@ -1,7 +1,7 @@
 # Three-mini-FP-Controller-demo
 A tiny and advanced first person controller based on three.js
 # Fps bar
-A fps bar is provided for your observation for your device that how it runs this
+A fps bar is provided for your observation that how it performs
 
 ---
 
