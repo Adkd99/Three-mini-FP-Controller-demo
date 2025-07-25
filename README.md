@@ -1,7 +1,5 @@
 # Three-mini-FP-Controller-demo
 A tiny and advanced first person controller based on three.js
-# controlls
-if you're using mobile then tilt it for better usage and avoid glitches. if you are using a pc then you can use pointer lock and other controller guidance are provided like for wasd and run and jump
 # Fps bar
 A fps bar is provided for your observation for your device that how it runs this
 
@@ -21,9 +19,6 @@ A fps bar is provided for your observation for your device that how it runs this
 | 🔁 Map Regeneration | Automatically resets map when the player crosses boundary. |
 ---
 
-# Try the demo
-> ✅ **[Try the Live Demo »](https://adkd99.github.io/Three-mini-FP-Controller-demo/)**
-
 ## 🎮 Controls
 
 ### 🧑‍💻 Keyboard (Desktop)
@@ -40,7 +35,14 @@ A fps bar is provided for your observation for your device that how it runs this
 - Hold **Run** button to run
 
 ---
+# Controlls caution 
+**if you're using mobile then tilt it for better usage and avoid glitches. if you are using a pc then you can use pointer lock and other controller guidance are provided like for wasd and run and jump**
 
+---
+# Try the demo
+> ✅ **[Try the Live Demo »](https://adkd99.github.io/Three-mini-FP-Controller-demo/)**
+
+---
 ## 🌐 Technologies
 
 - [Three.js](https://threejs.org/) (v0.160.0)
