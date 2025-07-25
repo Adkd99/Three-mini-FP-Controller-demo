@@ -36,12 +36,13 @@ A fps bar is provided for your observation that how it performs
 
 ---
 # Controlls caution 
-**if you're using mobile then tilt it for better usage and avoid glitches. if you are using a pc then you can use pointer lock and other controller guidance are provided like for wasd and run and jump**
+**if you're using mobile then tilt it for to avoid glitches or when you opened this in demo then refresh the tab once for better usage .if you are using a pc then you can use pointer lock and other controller guidance are provided like for wasd and run and jump**
 
 ---
 # Try the demo
 > ✅ **[Try the Live Demo »](https://adkd99.github.io/Three-mini-FP-Controller-demo/)**
 
+*I hope this demo insists you to add the player Controller on your three.js project*
 ---
 ## 🌐 Technologies
 
