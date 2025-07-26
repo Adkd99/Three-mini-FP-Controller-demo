@@ -49,7 +49,7 @@ A fps bar is provided for your observation that how it performs
 - [Three.js](https://threejs.org/) (v0.160.0)
 - HTML5, JavaScript (ES6 modules)
 - Touch and pointer events
-- Audio & texture loading
+- Texture loading Architecture
 
 ---
 
