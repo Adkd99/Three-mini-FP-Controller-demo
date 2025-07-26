@@ -1,281 +1,297 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import Stats from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/stats.module.js';
+// PlayerController.js
+// A universal First-Person Player Controller for Three.js
+// - PC (keyboard, mouse, pointer lock) & Touchscreen (joystick, drag, jump/run buttons) support
+// - Camera group and controls, no map or scene dependencies
+// - Drop-in: import, instantiate, add controller.cameraGroup to your scene
+// - Handles all controls, camera bob, jump/run, and is easily extendable
 
-// --- MAP & SCENE SETUP ---
-const scene = new THREE.Scene();
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+import * as THREE from 'three';
 
-const cameraGroup = new THREE.Object3D();
-cameraGroup.position.set(0, 1.6, 5);
-scene.add(cameraGroup);
+export default class PlayerController {
+  /**
+   * @param {THREE.PerspectiveCamera} camera - Camera to control (will be attached as child)
+   * @param {HTMLElement} domElement - Renderer DOM element for pointer lock and events
+   * @param {Object} opts - { baseSpeed, runMultiplier, jumpStrength, gravity, height }
+   */
+  constructor(camera, domElement, opts = {}) {
+    this.camera = camera;
+    this.domElement = domElement;
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-cameraGroup.add(camera);
+    // Movement params (customize as needed)
+    this.baseSpeed = opts.baseSpeed ?? 0.1;
+    this.runMultiplier = opts.runMultiplier ?? 1.8;
+    this.jumpStrength = opts.jumpStrength ?? 0.12;
+    this.gravity = opts.gravity ?? -0.005;
+    this.height = opts.height ?? 1.6;
 
-// Starfield
-const starGeometry = new THREE.BufferGeometry();
-const starCount = 3000;
-const positions = [];
-for (let i = 0; i < starCount; i++) {
-  const r = 490 + Math.random() * 10;
-  const theta = Math.random() * Math.PI * 2;
-  const phi = Math.acos((Math.random() * 2) - 1);
-  const x = r * Math.sin(phi) * Math.cos(theta);
-  const y = r * Math.sin(phi) * Math.sin(theta);
-  const z = r * Math.cos(phi);
-  positions.push(x, y, z);
-}
-starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-const starMaterial = new THREE.PointsMaterial({
-  color: 0xffffff,
-  size: 1.2,
-  sizeAttenuation: true,
-  transparent: true,
-  opacity: 0.8
-});
-const starField = new THREE.Points(starGeometry, starMaterial);
-scene.add(starField);
+    // Groups & state
+    this.cameraGroup = new THREE.Object3D();
+    this.cameraGroup.position.set(0, this.height, 0);
+    this.camera.rotation.set(0, 0, 0);
+    this.cameraGroup.add(this.camera);
 
-// Ground
-const loader = new THREE.TextureLoader();
-const moonTextureUrl = "https://s3-us-west-2.amazonaws.com/s.cdpn.io/17271/lroc_color_poles_1k.jpg";
-const groundTex = loader.load(moonTextureUrl, tex => { tex.encoding = THREE.sRGBEncoding; tex.needsUpdate = true; });
-groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
-groundTex.repeat.set(10, 10);
-const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1.0, metalness: 0.0 });
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), groundMat);
-ground.rotation.x = -Math.PI / 2;
-scene.add(ground);
+    this.keys = { forward: false, backward: false, left: false, right: false };
+    this.joystickInput = { x: 0, y: 0 };
+    this.isRunning = false;
+    this.isJumping = false;
+    this.velocityY = 0;
+    this.lastWalkOffset = new THREE.Vector3();
+    this.walkTime = 0;
 
-// Obstacles
-const obstacles = [];
-function generateObstacles() {
-  for (let i = 0; i < 15; i++) {
-    const box = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
-    );
-    box.position.set(Math.random() * 30 - 15, 0.5, Math.random() * 30 - 15);
-    scene.add(box);
-    obstacles.push(box);
-  }
-}
-generateObstacles();
+    // Camera bob (head vibration)
+    this.vibrationAmplitudeY = 0.06;
+    this.vibrationAmplitudeX = 0.04;
+    this.vibrationFrequency = 8;
 
-function regenerateMap() {
-  for (const box of obstacles) scene.remove(box);
-  obstacles.length = 0;
-  generateObstacles();
-  cameraGroup.position.set(0, 1.6, 5);
-}
-function checkMapBoundary() {
-  const pos = cameraGroup.position;
-  if (Math.abs(pos.x) > 40 || Math.abs(pos.z) > 40) {
-    regenerateMap();
-  }
-}
+    // Touch-related
+    this.dragTouchId = null;
+    this.joystickTouchId = null;
+    this.runTouchId = null;
+    this.prevX = 0;
+    this.prevY = 0;
 
-// Lighting
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-hemiLight.position.set(0, 50, 0);
-scene.add(hemiLight);
-const light = new THREE.DirectionalLight(0xffffff, 1.2);
-light.position.set(10, 30, 10);
-scene.add(light);
-
-const stats = Stats();
-document.body.appendChild(stats.dom);
-
-// --- PLAYER CONTROLLER ---
-
-const baseSpeed = 0.1, rotateSpeed = 0.0025, joystickInput = { x: 0, y: 0 };
-const keys = { forward: false, backward: false, left: false, right: false };
-let isJumping = false, velocityY = 0, gravity = -0.005, jumpStrength = 0.12, isRunning = false;
-
-const footstep = new Audio('https://cdn.jsdelivr.net/gh/pmndrs/drei-assets@master/sounds/footstep.mp3');
-footstep.volume = 0.4; footstep.loop = true;
-const jumpSound = new Audio('https://cdn.jsdelivr.net/gh/pmndrs/drei-assets@master/sounds/jump.mp3');
-jumpSound.volume = 0.5;
-
-let walkTime = 0, lastWalkOffset = new THREE.Vector3();
-const vibrationAmplitudeY = 0.06, vibrationAmplitudeX = 0.04, vibrationFrequency = 8;
-
-function checkCollision(pos) {
-  const playerRadius = 0.4;
-  for (const box of obstacles) {
-    const boxHalfSize = 0.5;
-    if (
-      Math.abs(pos.x - box.position.x) < playerRadius + boxHalfSize &&
-      Math.abs(pos.z - box.position.z) < playerRadius + boxHalfSize
-    ) return true;
-  }
-  return false;
-}
-
-function getInputVector() {
-  let x = 0, y = 0;
-  if (keys.forward) y += 1;
-  if (keys.backward) y -= 1;
-  if (keys.left) x -= 1;
-  if (keys.right) x += 1;
-  const joyMag = Math.abs(joystickInput.x) + Math.abs(joystickInput.y);
-  const keyMag = Math.abs(x) + Math.abs(y);
-  if (joyMag > 0) return { x: joystickInput.x, y: joystickInput.y };
-  if (keyMag > 0) {
-    const mag = Math.sqrt(x * x + y * y) || 1;
-    return { x: x / mag, y: y / mag };
-  }
-  return { x: 0, y: 0 };
-}
-
-function updateMovement(delta) {
-  camera.position.sub(lastWalkOffset);
-  lastWalkOffset.set(0, 0, 0);
-  const oldPos = cameraGroup.position.clone();
-
-  const dir = new THREE.Vector3();
-  cameraGroup.getWorldDirection(dir);
-  dir.y = 0; dir.normalize();
-  const right = new THREE.Vector3().crossVectors(dir, cameraGroup.up).normalize();
-  let moveVec = new THREE.Vector3();
-  let speed = isRunning ? baseSpeed * 1.8 : baseSpeed;
-  const input = getInputVector();
-  const moving = input.x !== 0 || input.y !== 0;
-
-  if (moving) {
-    moveVec.add(dir.clone().multiplyScalar(-input.y * speed));
-    moveVec.add(right.clone().multiplyScalar(-input.x * speed));
+    // Setup events, UI if not present
+    this._setupJoystickElements();
+    this._setupInputListeners();
   }
 
-  const newPos = cameraGroup.position.clone().add(moveVec);
-  velocityY += gravity;
-  newPos.y += velocityY;
-  if (newPos.y < 1.6) { newPos.y = 1.6; isJumping = false; velocityY = 0; }
-  if (!checkCollision(newPos)) cameraGroup.position.copy(newPos);
+  // ------------ Main update (call every frame) -----------------
+  update(delta) {
+    // Remove last bob offset before moving
+    this.camera.position.sub(this.lastWalkOffset);
+    this.lastWalkOffset.set(0, 0, 0);
 
-  if (moving && cameraGroup.position.y === 1.6) {
-    walkTime += delta * (isRunning ? 1.5 : 1.0);
-    lastWalkOffset.x = Math.sin(walkTime * vibrationFrequency) * vibrationAmplitudeX;
-    lastWalkOffset.y = Math.abs(Math.sin(walkTime * vibrationFrequency * 0.5)) * vibrationAmplitudeY;
-    camera.position.add(lastWalkOffset);
-  } else {
-    walkTime = 0;
-  }
+    // Direction & right vectors
+    const dir = new THREE.Vector3();
+    this.cameraGroup.getWorldDirection(dir);
+    dir.y = 0; dir.normalize();
+    const right = new THREE.Vector3().crossVectors(dir, this.cameraGroup.up).normalize();
 
-  const movedDistance = oldPos.distanceTo(cameraGroup.position);
-  if (movedDistance > 0 && cameraGroup.position.y === 1.6) {
-    if (footstep.paused) footstep.play().catch(e => {});
-    footstep.playbackRate = isRunning ? 1.4 : 1.0;
-  } else {
-    if (!footstep.paused) footstep.pause();
-  }
+    // Movement vector based on input
+    let moveVec = new THREE.Vector3();
+    let speed = this.isRunning ? this.baseSpeed * this.runMultiplier : this.baseSpeed;
+    const input = this._getInputVector();
+    const moving = input.x !== 0 || input.y !== 0;
+    if (moving) {
+      moveVec.add(dir.clone().multiplyScalar(-input.y * speed));
+      moveVec.add(right.clone().multiplyScalar(-input.x * speed));
+    }
 
-  checkMapBoundary();
-}
+    // Gravity & Jump
+    this.velocityY += this.gravity;
+    let newY = this.cameraGroup.position.y + this.velocityY;
+    if (newY < this.height) { newY = this.height; this.isJumping = false; this.velocityY = 0; }
 
-// --- ANIMATION LOOP ---
-let lastTime = performance.now();
-function animate() {
-  requestAnimationFrame(animate);
-  const now = performance.now();
-  const delta = (now - lastTime) / 1000;
-  lastTime = now;
-  updateMovement(delta);
-  renderer.render(scene, camera);
-  stats.update();
-}
-animate();
+    // Move group
+    this.cameraGroup.position.add(moveVec);
+    this.cameraGroup.position.y = newY;
 
-// --- POINTER LOCK ---
-renderer.domElement.addEventListener('click', () => { renderer.domElement.requestPointerLock(); });
-document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement === renderer.domElement) {
-    document.addEventListener('mousemove', onMouseMove);
-  } else {
-    document.removeEventListener('mousemove', onMouseMove);
-  }
-});
-function onMouseMove(e) {
-  cameraGroup.rotation.y -= e.movementX * rotateSpeed;
-  const newPitch = camera.rotation.x - e.movementY * rotateSpeed;
-  camera.rotation.x = THREE.MathUtils.clamp(newPitch, -Math.PI / 2, Math.PI / 2);
-}
-
-// --- TOUCH CONTROLS ---
-let dragTouchId = null, joystickTouchId = null, runTouchId = null, prevX = 0, prevY = 0;
-const stick = document.getElementById('stick'), joystick = document.getElementById('joystick');
-const joystickRadius = joystick ? joystick.offsetWidth / 2 : 60; // fallback
-
-document.body.addEventListener('touchstart', e => {
-  for (const touch of e.changedTouches) {
-    const target = touch.target;
-    if (joystick && stick && target.closest('#joystick') && joystickTouchId === null) {
-      joystickTouchId = touch.identifier; stick.style.transition = 'none';
-    } else if (target.closest && target.closest('#jumpBtn')) {
-      if (!isJumping) { isJumping = true; velocityY = jumpStrength; jumpSound.play(); }
-    } else if (target.closest && target.closest('#runBtn')) {
-      if (runTouchId === null) { runTouchId = touch.identifier; isRunning = true; }
-    } else if (dragTouchId === null) {
-      dragTouchId = touch.identifier; prevX = touch.clientX; prevY = touch.clientY;
+    // Camera bob
+    if (moving && this.cameraGroup.position.y === this.height) {
+      this.walkTime += delta * (this.isRunning ? 1.5 : 1.0);
+      this.lastWalkOffset.x = Math.sin(this.walkTime * this.vibrationFrequency) * this.vibrationAmplitudeX;
+      this.lastWalkOffset.y = Math.abs(Math.sin(this.walkTime * this.vibrationFrequency * 0.5)) * this.vibrationAmplitudeY;
+      this.camera.position.add(this.lastWalkOffset);
+    } else {
+      this.walkTime = 0;
     }
   }
-}, { passive: false });
-document.body.addEventListener('touchmove', e => {
-  for (const touch of e.changedTouches) {
-    if (joystick && stick && touch.identifier === joystickTouchId) {
-      const rect = joystick.getBoundingClientRect();
-      const x = touch.clientX - (rect.left + joystickRadius);
-      const y = touch.clientY - (rect.top + joystickRadius);
-      const dist = Math.min(joystickRadius, Math.hypot(x, y));
-      const angle = Math.atan2(y, x);
-      const stickX = dist * Math.cos(angle), stickY = dist * Math.sin(angle);
-      stick.style.left = `${joystickRadius - 20 + stickX}px`;
-      stick.style.top = `${joystickRadius - 20 + stickY}px`;
-      joystickInput.x = stickX / joystickRadius; joystickInput.y = -stickY / joystickRadius;
-    } else if (touch.identifier === dragTouchId) {
-      const dx = touch.clientX - prevX, dy = touch.clientY - prevY;
-      prevX = touch.clientX; prevY = touch.clientY;
-      cameraGroup.rotation.y -= dx * rotateSpeed;
-      const newPitch = camera.rotation.x - dy * rotateSpeed;
-      camera.rotation.x = THREE.MathUtils.clamp(newPitch, -Math.PI / 2, Math.PI / 2);
+
+  getVelocity() {
+    return {
+      x: this._getInputVector().x * (this.isRunning ? this.baseSpeed * this.runMultiplier : this.baseSpeed),
+      y: this.velocityY
+    };
+  }
+
+  isGrounded() {
+    return this.cameraGroup.position.y === this.height;
+  }
+
+  // ------------ Input vector combining keys/joystick -----------
+  _getInputVector() {
+    // Keyboard
+    let x = 0, y = 0;
+    if (this.keys.forward) y += 1;
+    if (this.keys.backward) y -= 1;
+    if (this.keys.left) x -= 1;
+    if (this.keys.right) x += 1;
+    const joyMag = Math.abs(this.joystickInput.x) + Math.abs(this.joystickInput.y);
+    const keyMag = Math.abs(x) + Math.abs(y);
+    if (joyMag > 0) return { x: this.joystickInput.x, y: this.joystickInput.y };
+    if (keyMag > 0) {
+      const mag = Math.sqrt(x*x + y*y) || 1;
+      return { x: x/mag, y: y/mag };
+    }
+    return { x: 0, y: 0 };
+  }
+
+  // ------------ Joystick/Touch UI setup -----------
+  _setupJoystickElements() {
+    if (!document.getElementById('joystick')) {
+      const joystick = document.createElement('div');
+      joystick.id = 'joystick';
+      Object.assign(joystick.style, {
+        position: 'absolute', bottom: '20px', left: '20px', width: '120px', height: '120px',
+        background: 'rgba(255,255,255,0.1)', borderRadius: '50%', touchAction: 'none', zIndex: 10,
+      });
+      document.body.appendChild(joystick);
+
+      const stick = document.createElement('div');
+      stick.id = 'stick';
+      Object.assign(stick.style, {
+        position: 'absolute', left: '40px', top: '40px', width: '40px', height: '40px',
+        background: '#fff', borderRadius: '50%',
+      });
+      joystick.appendChild(stick);
+    }
+    if (!document.getElementById('jumpBtn')) {
+      const jumpBtn = document.createElement('div');
+      jumpBtn.id = 'jumpBtn'; jumpBtn.textContent = 'Jump';
+      Object.assign(jumpBtn.style, {
+        position: 'absolute', width: '80px', height: '80px',
+        background: 'rgba(255,255,255,0.2)', borderRadius: '50%',
+        textAlign: 'center', lineHeight: '80px', color: '#fff', fontSize: '18px',
+        userSelect: 'none', zIndex: 10, bottom: '40px', right: '20px',
+      });
+      document.body.appendChild(jumpBtn);
+    }
+    if (!document.getElementById('runBtn')) {
+      const runBtn = document.createElement('div');
+      runBtn.id = 'runBtn'; runBtn.textContent = 'Run';
+      Object.assign(runBtn.style, {
+        position: 'absolute', width: '80px', height: '80px',
+        background: 'rgba(255,255,255,0.2)', borderRadius: '50%',
+        textAlign: 'center', lineHeight: '80px', color: '#fff', fontSize: '18px',
+        userSelect: 'none', zIndex: 10, bottom: '140px', right: '20px',
+      });
+      document.body.appendChild(runBtn);
+    }
+    this.stick = document.getElementById('stick');
+    this.joystick = document.getElementById('joystick');
+    this.joystickRadius = this.joystick.offsetWidth / 2;
+  }
+
+  // ----------- Input events (keyboard, mouse, touch) --------------
+  _setupInputListeners() {
+    // Bind methods
+    this._onMouseMove = this._onMouseMove.bind(this);
+    this._onKeyDown = this._onKeyDown.bind(this);
+    this._onKeyUp = this._onKeyUp.bind(this);
+    this._onTouchStart = this._onTouchStart.bind(this);
+    this._onTouchMove = this._onTouchMove.bind(this);
+    this._onTouchEnd = this._onTouchEnd.bind(this);
+
+    // Pointer lock for desktop
+    this.domElement.addEventListener('click', () => { this.domElement.requestPointerLock(); });
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement === this.domElement) {
+        document.addEventListener('mousemove', this._onMouseMove);
+      } else {
+        document.removeEventListener('mousemove', this._onMouseMove);
+      }
+    });
+
+    // Keyboard
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+
+    // Touch
+    document.body.addEventListener('touchstart', this._onTouchStart, { passive: false });
+    document.body.addEventListener('touchmove', this._onTouchMove, { passive: false });
+    document.body.addEventListener('touchend', this._onTouchEnd);
+  }
+
+  _onMouseMove(e) {
+    this.cameraGroup.rotation.y -= e.movementX * 0.0025;
+    const newPitch = this.camera.rotation.x - e.movementY * 0.0025;
+    this.camera.rotation.x = THREE.MathUtils.clamp(newPitch, -Math.PI/2, Math.PI/2);
+  }
+
+  _onKeyDown(e) {
+    if (e.key === 'w') this.keys.forward = true;
+    if (e.key === 's') this.keys.backward = true;
+    if (e.key === 'a') this.keys.left = true;
+    if (e.key === 'd') this.keys.right = true;
+    if (e.key === ' ' && !this.isJumping) {
+      this.isJumping = true;
+      this.velocityY = this.jumpStrength;
+    }
+    if (e.key === 'r') this.isRunning = true;
+  }
+
+  _onKeyUp(e) {
+    if (e.key === 'w') this.keys.forward = false;
+    if (e.key === 's') this.keys.backward = false;
+    if (e.key === 'a') this.keys.left = false;
+    if (e.key === 'd') this.keys.right = false;
+    if (e.key === 'r') this.isRunning = false;
+  }
+
+  _onTouchStart(e) {
+    for (const touch of e.changedTouches) {
+      const target = touch.target;
+      if (target.closest('#joystick') && this.joystickTouchId === null) {
+        this.joystickTouchId = touch.identifier;
+        this.stick.style.transition = 'none';
+      } else if (target.closest('#jumpBtn')) {
+        if (!this.isJumping) { this.isJumping = true; this.velocityY = this.jumpStrength; }
+      } else if (target.closest('#runBtn')) {
+        if (this.runTouchId === null) { this.runTouchId = touch.identifier; this.isRunning = true; }
+      } else if (this.dragTouchId === null) {
+        this.dragTouchId = touch.identifier;
+        this.prevX = touch.clientX; this.prevY = touch.clientY;
+      }
     }
   }
-}, { passive: false });
-document.body.addEventListener('touchend', e => {
-  for (const touch of e.changedTouches) {
-    if (joystick && stick && touch.identifier === joystickTouchId) {
-      joystickTouchId = null; stick.style.transition = '0.2s'; stick.style.left = '40px'; stick.style.top = '40px'; joystickInput.x = 0; joystickInput.y = 0;
-    } else if (touch.identifier === dragTouchId) {
-      dragTouchId = null;
-    } else if (touch.identifier === runTouchId) {
-      runTouchId = null;
-      isRunning = false;
+
+  _onTouchMove(e) {
+    for (const touch of e.changedTouches) {
+      if (touch.identifier === this.joystickTouchId) {
+        const rect = this.joystick.getBoundingClientRect();
+        const x = touch.clientX - (rect.left + this.joystickRadius);
+        const y = touch.clientY - (rect.top + this.joystickRadius);
+        const dist = Math.min(this.joystickRadius, Math.hypot(x, y));
+        const angle = Math.atan2(y, x);
+        const stickX = dist * Math.cos(angle), stickY = dist * Math.sin(angle);
+        this.stick.style.left = `${this.joystickRadius - 20 + stickX}px`;
+        this.stick.style.top = `${this.joystickRadius - 20 + stickY}px`;
+        this.joystickInput.x = stickX / this.joystickRadius;
+        this.joystickInput.y = -stickY / this.joystickRadius;
+      } else if (touch.identifier === this.dragTouchId) {
+        const dx = touch.clientX - this.prevX, dy = touch.clientY - this.prevY;
+        this.prevX = touch.clientX; this.prevY = touch.clientY;
+        this.cameraGroup.rotation.y -= dx * 0.0025;
+        const newPitch = this.camera.rotation.x - dy * 0.0025;
+        this.camera.rotation.x = THREE.MathUtils.clamp(newPitch, -Math.PI/2, Math.PI/2);
+      }
     }
   }
-});
 
-// --- KEYBOARD INPUT ---
-window.addEventListener('keydown', e => {
-  if (e.key === 'w') keys.forward = true;
-  if (e.key === 's') keys.backward = true;
-  if (e.key === 'a') keys.left = true;
-  if (e.key === 'd') keys.right = true;
-  if (e.key === ' ' && !isJumping) { isJumping = true; velocityY = jumpStrength; jumpSound.play(); }
-  if (e.key === 'r') isRunning = true;
-});
-window.addEventListener('keyup', e => {
-  if (e.key === 'w') keys.forward = false;
-  if (e.key === 's') keys.backward = false;
-  if (e.key === 'a') keys.left = false;
-  if (e.key === 'd') keys.right = false;
-  if (e.key === 'r') isRunning = false;
-});
+  _onTouchEnd(e) {
+    for (const touch of e.changedTouches) {
+      if (touch.identifier === this.joystickTouchId) {
+        this.joystickTouchId = null;
+        this.stick.style.transition = '0.2s';
+        this.stick.style.left = '40px';
+        this.stick.style.top = '40px';
+        this.joystickInput.x = 0; this.joystickInput.y = 0;
+      } else if (touch.identifier === this.dragTouchId) {
+        this.dragTouchId = null;
+      } else if (touch.identifier === this.runTouchId) {
+        this.runTouchId = null;
+        this.isRunning = false;
+      }
+    }
+  }
 
-// --- RESIZE ---
-window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-});
+  // ----------- Clean up listeners -----------
+  dispose() {
+    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keyup', this._onKeyUp);
+    document.body.removeEventListener('touchstart', this._onTouchStart);
+    document.body.removeEventListener('touchmove', this._onTouchMove);
+    document.body.removeEventListener('touchend', this._onTouchEnd);
+    document.removeEventListener('mousemove', this._onMouseMove);
+  }
+}
