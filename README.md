@@ -36,7 +36,7 @@ A fps bar is provided for your observation that how it performs
 
 ---
 # Controlls caution 
-**if you're using mobile then tilt it for to avoid glitches or when you opened this in demo then refresh the tab once for better usage .if you are using a pc then you can use pointer lock and other controller guidance are provided like for wasd and run and jump**
+**if you're using mobile then tilt it for to avoid glitches or when you opened this in demo then refresh the tab once for better usage.if you are using a pc then you can use pointer lock and other controller guidance are provided like for wasd and run and jump**
 
 ---
 # Try the demo
@@ -58,5 +58,4 @@ A fps bar is provided for your observation that how it performs
 This project is a **single-file HTML demo** and does not require a build system or framework.
 
 ```
-📄 index.html or Three mini FP Controller demo.html   ← (All code lives here)
----
+📄 index.html or Three mini FP Controller demo.html or player controller.js  ← (All code lives here)
