@@ -4,7 +4,10 @@ A tiny and advanced first person controller based on three.js
 A fps bar is provided for your observation that how it performs
 
 ---
+# warning
+I have many typing mistakes so please verify everything carefully
 
+---
 # features
 - 🚀 Procedural **starfield sky shader**
 - 🎮 **WASD / Touch Joystick / Pointer Lock** support
